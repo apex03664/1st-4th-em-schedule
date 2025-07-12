@@ -24,6 +24,7 @@ const BookingForm = () => {
     email: "",
     phone: "",
     location: "",
+    batchNo:"5th",
     grade: "",
     countryCode: "+91",
     parentConfirmed: false,
@@ -73,6 +74,7 @@ const BookingForm = () => {
         date: dateStr,
         program:"LITTLE SCIENTIST 1ST-4TH",
         time: selectedTime,
+       
         counselorEmail: selectedSlotObj.counselorEmail,
         counselorId: selectedSlotObj.counselorId,
       });
