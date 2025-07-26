@@ -24,7 +24,7 @@ const BookingForm = () => {
     email: "",
     phone: "",
     location: "",
-    batchNo:"5th",
+    batchNo:"7th",
     grade: "",
     countryCode: "+91",
     parentConfirmed: false,
