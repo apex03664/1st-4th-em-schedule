@@ -369,7 +369,7 @@ const RegistrationForm = ({
               ✅ Confirm Booking
             </button>
           </div>
-        </div>
+        
       </form>
     </div>
   );
