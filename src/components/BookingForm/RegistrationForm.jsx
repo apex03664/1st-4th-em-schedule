@@ -243,26 +243,28 @@ const RegistrationForm = ({
               placeholder="Enter phone number"
             />
           </div>
-
-          {/* Batch No */}
-          <div>
-            <label className="block font-semibold mb-1">
-              Batch No <span className="text-red-500">*</span>
-            </label>
-            <select
-              name="batchNo"
-              required
-              value={form.batchNo}
-              onChange={(e) => setForm({ ...form, batchNo: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-700 rounded bg-black text-white focus:outline-none focus:border-blue-500"
-            >
-              <option value="" disabled>
-                Select Batch No
-              </option>
-              <option value="Batch 7">Batch 7</option>
-              <option value="Batch 6">Batch 6</option>
-            </select>
-          </div>
+        </div>
+        {/* Batch No */}
+        <div>
+          <label className="block font-semibold mb-1">
+            Batch No <span className="text-red-500">*</span>
+          </label>
+          <select
+            name="batchNo"
+            required
+            value={form.batchNo }
+            onChange={(e) => setForm({ ...form, batchNo: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-700 rounded bg-black text-white focus:outline-none"
+          >
+            <option value="9" disabled>
+              Select Batch No
+            </option>
+                <option value="Batch 9">Batch 9</option>
+            <option value="Batch 8">Batch 9</option>
+        
+           
+          </select>
+        </div>
 
           {/* Location */}
           <div>
