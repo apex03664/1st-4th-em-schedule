@@ -168,6 +168,7 @@ const BookingForm = () => {
   return (
     <div className="flex items-center justify-center min-h-screen bg-black text-black px-6 md:px-12 lg:px-20 py-10">
       <ToastContainer position="top-right" autoClose={3000} theme="colored" />
+      
       <div className="w-full max-w-6xl">
         {!showForm ? (
           <DateTimeSelector
