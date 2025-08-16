@@ -8,7 +8,16 @@ import DateTimeSelector from "./BookingForm/DateTimeSelector";
 import { format } from "date-fns";
 
 const BookingForm = () => {
-  const today = new Date();
+// Helper to get "Asia/Kolkata" equivalent date
+const getISTDate = () => {
+  const now = new Date();
+  // IST = UTC + 5.5 hours
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc + (5.5 * 60 * 60 * 1000));
+}
+
+// Then use getISTDate() for today everywhere:
+const today = getISTDate();
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -19,12 +28,31 @@ const BookingForm = () => {
   const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [currentMonthDays, setCurrentMonthDays] = useState([]);
 
+  // Helper: Get last Saturday on or before a given date
+  const getLastSaturday = (date) => {
+    const day = date.getDay(); // 0=Sun ... 6=Sat
+    const daysToSaturday = (day >= 6) ? day - 6 : day + 1;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() - daysToSaturday);
+  };
+  // Calculate batch number starting from 10 at the last Saturday on/before today
+  const getBatchForDate = (date) => {
+    const startSaturday = getLastSaturday(today);
+    const diffTime = date.getTime() - startSaturday.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const weeksPassed = Math.floor(diffDays / 7);
+    return 10 + (weeksPassed >= 0 ? weeksPassed : 0);
+  };
+  // Calculate current batch and previous batch to pass to form
+  const currentBatch = getBatchForDate(today);
+  const previousBatch = currentBatch > 10 ? currentBatch - 1 : 9;
+  const batchOptions = [...new Set([currentBatch, previousBatch])];
+
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
     location: "",
-    batchNo:"7th",
+    batchNo: currentBatch.toString(),
     grade: "",
     countryCode: "+91",
     parentConfirmed: false,
@@ -58,9 +86,7 @@ const BookingForm = () => {
     if (!selectedDate || !selectedTime)
       return toast.error("📅 Please select a date and time.");
 
-    const phoneValid = /^[0-9]{10}$/.test(form.phone);
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
-    if (!phoneValid) return toast.error("📱 Enter a valid 10-digit mobile number");
     if (!emailValid) return toast.error("📧 Enter a valid email address");
 
     const dateStr = format(selectedDate, "yyyy-MM-dd");
@@ -72,9 +98,9 @@ const BookingForm = () => {
       const response = await bookAppointment({
         ...form,
         date: dateStr,
-        program:"LITTLE SCIENTIST 1ST-4TH",
+        program: "LITTLE SCIENTIST 1ST-4TH",
         time: selectedTime,
-       
+
         counselorEmail: selectedSlotObj.counselorEmail,
         counselorId: selectedSlotObj.counselorId,
       });
@@ -84,7 +110,7 @@ const BookingForm = () => {
         toast.success("✅ Booking confirmed!");
         resetForm();
       } else {
-         
+
         toast.error(response);
       }
     } catch (err) {
@@ -162,13 +188,15 @@ const BookingForm = () => {
     return days;
   };
 
+
+
   const selectedDateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : null;
   const timeSlots = selectedDateStr && dateSlotMap[selectedDateStr] ? [...new Set(dateSlotMap[selectedDateStr].map((s) => s.time))] : [];
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-black text-black px-6 md:px-12 lg:px-20 py-10">
       <ToastContainer position="top-right" autoClose={3000} theme="colored" />
-      
+
       <div className="w-full max-w-6xl">
         {!showForm ? (
           <DateTimeSelector
@@ -198,6 +226,7 @@ const BookingForm = () => {
               getOneHourLater={getOneHourLater}
               setShowForm={setShowForm}
               handleSubmit={handleSubmit}
+              batchOptions={batchOptions}
               handleChange={handleChange}
             />
           </div>

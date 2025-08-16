@@ -9,6 +9,8 @@ const RegistrationForm = ({
   form,
   setForm,
   selectedDate,
+    batchOptions, // add this!
+
   selectedTime,
   getOneHourLater,
   setShowForm,
@@ -245,26 +247,23 @@ const RegistrationForm = ({
           </div>
         </div>
         {/* Batch No */}
-        <div>
-          <label className="block font-semibold mb-1">
-            Batch No <span className="text-red-500">*</span>
-          </label>
-          <select
-            name="batchNo"
-            required
-            value={form.batchNo }
-            onChange={(e) => setForm({ ...form, batchNo: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-700 rounded bg-black text-white focus:outline-none"
-          >
-            <option value="9" disabled>
-              Select Batch No
-            </option>
-                <option value="Batch 9">Batch 9</option>
-            <option value="Batch 8">Batch 9</option>
-        
-           
-          </select>
-        </div>
+       <select
+  name="batchNo"
+  required
+  value={form.batchNo}
+  onChange={(e) => setForm({ ...form, batchNo: e.target.value })}
+  className="w-full px-4 py-2 border border-gray-700 rounded bg-black text-white focus:outline-none"
+>
+  <option value="" disabled>
+    Select Batch No
+  </option>
+  {batchOptions.map((batch) => (
+    <option key={batch} value={batch.toString()}>
+      {`Batch ${batch}`}
+    </option>
+  ))}
+</select>
+
 
           {/* Location */}
           <div>
