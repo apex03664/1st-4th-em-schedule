@@ -254,7 +254,7 @@ const RegistrationForm = ({
             GRADE of Student <span className="text-red-500">*</span>
           </label>
           <div className="space-y-1">
-            {["5th", "6th", "7th", "8th", "9th"].map((g) => (
+            {["1st", "2nd", "3rd", "4th"].map((g) => (
               <label key={g} className="flex items-center gap-2">
                 <input
                   type="radio"
