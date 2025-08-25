@@ -6,18 +6,26 @@ import SuccessModal from "./BookingForm/SuccessModel";
 import RegistrationForm from "./BookingForm/RegistrationForm";
 import DateTimeSelector from "./BookingForm/DateTimeSelector";
 import { format } from "date-fns";
+import useBatch from "./useBatch.jsx";
 
 const BookingForm = () => {
-// Helper to get "Asia/Kolkata" equivalent date
-const getISTDate = () => {
-  const now = new Date();
-  // IST = UTC + 5.5 hours
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  return new Date(utc + (5.5 * 60 * 60 * 1000));
-}
+  const today = new Date();
 
-// Then use getISTDate() for today everywhere:
-const today = getISTDate();
+  // Use batch from API
+  const { currentBatch, loading: batchLoading, error: batchError } = useBatch();
+
+  // Compute batch options: current + 2 previous batches if available
+  const batchOptions = [];
+  if (currentBatch !== null) {
+    batchOptions.push(currentBatch);
+    batchOptions.push(currentBatch - 1);
+    batchOptions.push(currentBatch - 2);
+  } else {
+    // Show fallback batch if API not loaded
+    batchOptions.push("Can't fetch ! Kindly book and inform us" );
+   
+  }
+
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -28,35 +36,79 @@ const today = getISTDate();
   const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [currentMonthDays, setCurrentMonthDays] = useState([]);
 
-  // Helper: Get last Saturday on or before a given date
-  const getLastSaturday = (date) => {
-    const day = date.getDay(); // 0=Sun ... 6=Sat
-    const daysToSaturday = (day >= 6) ? day - 6 : day + 1;
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate() - daysToSaturday);
-  };
-  // Calculate batch number starting from 10 at the last Saturday on/before today
-  const getBatchForDate = (date) => {
-    const startSaturday = getLastSaturday(today);
-    const diffTime = date.getTime() - startSaturday.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    const weeksPassed = Math.floor(diffDays / 7);
-    return 10 + (weeksPassed >= 0 ? weeksPassed : 0);
-  };
-  // Calculate current batch and previous batch to pass to form
-  const currentBatch = getBatchForDate(today);
-  const previousBatch = currentBatch > 10 ? currentBatch - 1 : 9;
-  const batchOptions = [...new Set([currentBatch, previousBatch])];
-
+  // Form state, initialize batchNo using currentBatch when available
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
     location: "",
-    batchNo: currentBatch.toString(),
     grade: "",
     countryCode: "+91",
+    batchNo: currentBatch !== null ? currentBatch.toString() : "100",
     parentConfirmed: false,
   });
+
+  // Update batchNo on currentBatch change or selectedDate change
+  useEffect(() => {
+    if (currentBatch !== null) {
+      setForm((prev) => ({ ...prev, batchNo: currentBatch.toString() }));
+    }
+  }, [currentBatch]);
+
+  // Generate calendar days for current month
+  useEffect(() => {
+    const generateMonthDays = (year, month) => {
+      const days = [];
+      const first = new Date(year, month, 1);
+      const last = new Date(year, month + 1, 0);
+      for (let i = 0; i < first.getDay(); i++) days.push(null);
+      for (let d = 1; d <= last.getDate(); d++) days.push(new Date(year, month, d));
+      return days;
+    };
+    setCurrentMonthDays(generateMonthDays(currentYear, currentMonth));
+  }, [currentYear, currentMonth]);
+
+  // Fetch slots
+  useEffect(() => {
+    const fetchSlotConfig = async () => {
+      try {
+        const data = await getSlotConfig();
+        const map = {};
+        data.forEach(({ date, slots }) => {
+          map[date] = slots;
+        });
+        setDateSlotMap(map);
+
+        const now = new Date();
+        now.setSeconds(0, 0);
+
+        const sortedDates = Object.keys(map).sort();
+        for (let dateStr of sortedDates) {
+          const slots = map[dateStr];
+          for (let slot of slots) {
+            const [time, meridian] = slot.time.split(" ");
+            let [hours, minutes] = time.split(":").map(Number);
+            if (meridian === "PM" && hours !== 12) hours += 12;
+            if (meridian === "AM" && hours === 12) hours = 0;
+
+            const slotDate = new Date(`${dateStr}T${hours.toString().padStart(2,"0")}:${minutes.toString().padStart(2,"0")}:00`);
+
+            if (slotDate > now) {
+              const selectedDateObj = new Date(dateStr);
+              setSelectedDate(selectedDateObj);
+              setSelectedTime("");
+              return;
+            }
+          }
+        }
+        setSelectedDate(null);
+        setSelectedTime("");
+      } catch (err) {
+        console.error("❌ Failed to fetch slots:", err);
+      }
+    };
+    fetchSlotConfig();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -83,8 +135,7 @@ const today = getISTDate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedDate || !selectedTime)
-      return toast.error("📅 Please select a date and time.");
+    if (!selectedDate || !selectedTime) return toast.error("📅 Please select a date and time.");
 
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
     if (!emailValid) return toast.error("📧 Enter a valid email address");
@@ -100,22 +151,20 @@ const today = getISTDate();
         date: dateStr,
         program: "LITTLE SCIENTIST 1ST-4TH",
         time: selectedTime,
-
         counselorEmail: selectedSlotObj.counselorEmail,
         counselorId: selectedSlotObj.counselorId,
       });
 
       if (response.success || response.booking?._id) {
         setShowSuccess(true);
-        toast.success("✅ Booking confirmed!");
+        toast.success(`✅ Booking confirmed!`);
         resetForm();
       } else {
-
         toast.error(response);
       }
     } catch (err) {
       console.error("Booking error:", err);
-      toast.error(err);
+      toast.error(err.message || err);
     }
   };
 
@@ -127,6 +176,7 @@ const today = getISTDate();
       location: "",
       grade: "",
       countryCode: "+91",
+      batchNo: currentBatch !== null ? currentBatch.toString() : "100",
       parentConfirmed: false,
     });
     setSelectedDate(null);
@@ -134,69 +184,15 @@ const today = getISTDate();
     setShowForm(false);
   };
 
-  useEffect(() => {
-    setCurrentMonthDays(generateMonthDays(currentYear, currentMonth));
-  }, [currentMonth, currentYear]);
-
-  useEffect(() => {
-    const fetchSlotConfig = async () => {
-      try {
-        const data = await getSlotConfig();
-        const map = {};
-        data.forEach(({ date, slots }) => {
-          map[date] = slots;
-        });
-        setDateSlotMap(map);
-
-        const now = new Date();
-        now.setSeconds(0, 0);
-
-        const sortedDates = Object.keys(map).sort();
-        for (let dateStr of sortedDates) {
-          const slots = map[dateStr];
-          for (let slot of slots) {
-            const [time, meridian] = slot.time.split(" ");
-            let [hours, minutes] = time.split(":").map(Number);
-            if (meridian === "PM" && hours !== 12) hours += 12;
-            if (meridian === "AM" && hours === 12) hours = 0;
-
-            const slotDate = new Date(`${dateStr}T${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:00`);
-
-            if (slotDate > now) {
-              setSelectedDate(new Date(dateStr));
-              setSelectedTime("");
-              return;
-            }
-          }
-        }
-        setSelectedDate(null);
-        setSelectedTime("");
-      } catch (err) {
-        console.error("❌ Failed to fetch slots:", err);
-      }
-    };
-
-    fetchSlotConfig();
-  }, []);
-
-  const generateMonthDays = (year, month) => {
-    const days = [];
-    const first = new Date(year, month, 1);
-    const last = new Date(year, month + 1, 0);
-    for (let i = 0; i < first.getDay(); i++) days.push(null);
-    for (let d = 1; d <= last.getDate(); d++) days.push(new Date(year, month, d));
-    return days;
-  };
-
-
-
   const selectedDateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : null;
-  const timeSlots = selectedDateStr && dateSlotMap[selectedDateStr] ? [...new Set(dateSlotMap[selectedDateStr].map((s) => s.time))] : [];
+  const timeSlots =
+    selectedDateStr && dateSlotMap[selectedDateStr]
+      ? [...new Set(dateSlotMap[selectedDateStr].map((s) => s.time))]
+      : [];
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-black text-black px-6 md:px-12 lg:px-20 py-10">
       <ToastContainer position="top-right" autoClose={3000} theme="colored" />
-
       <div className="w-full max-w-6xl">
         {!showForm ? (
           <DateTimeSelector
@@ -226,8 +222,8 @@ const today = getISTDate();
               getOneHourLater={getOneHourLater}
               setShowForm={setShowForm}
               handleSubmit={handleSubmit}
-              batchOptions={batchOptions}
               handleChange={handleChange}
+              batchOptions={batchOptions}
             />
           </div>
         )}
