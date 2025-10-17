@@ -1,29 +1,68 @@
 import { useState, useEffect } from "react";
-import { bookAppointment, getSlotConfig } from "./../../apis/apis";
+import { bookAppointment, getAvailableSlots } from "./../../apis/apis";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import SuccessModal from "./BookingForm/SuccessModel";
 import RegistrationForm from "./BookingForm/RegistrationForm";
 import DateTimeSelector from "./BookingForm/DateTimeSelector";
 import { format } from "date-fns";
 import useBatch from "./useBatch.jsx";
 
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const getUserTimezone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch (error) {
+    return 'Asia/Kolkata';
+  }
+};
+
+const convertUTCToUserTimezone = (utcDateISO, utcTimeSlot, userTimezone) => {
+  try {
+    const [startTime] = utcTimeSlot.split('-');
+    const utcDateStr = dayjs(utcDateISO).utc().format('YYYY-MM-DD');
+    const utcStart = dayjs.utc(`${utcDateStr} ${startTime}`);
+    
+    if (!utcStart.isValid()) {
+      return {
+        displayTime: utcTimeSlot,
+        date: utcDateStr,
+        dateObj: new Date(utcDateStr)
+      };
+    }
+    
+    const userStart = utcStart.tz(userTimezone);
+    const userEnd = userStart.add(1, 'hour');
+    
+    return {
+      displayTime: `${userStart.format('h:mm A')}-${userEnd.format('h:mm A')}`,
+      date: userStart.format('YYYY-MM-DD'),
+      dateObj: userStart.toDate()
+    };
+  } catch (error) {
+    return {
+      displayTime: utcTimeSlot,
+      date: dayjs(utcDateISO).format('YYYY-MM-DD'),
+      dateObj: new Date(utcDateISO)
+    };
+  }
+};
+
 const BookingForm = () => {
-  const today = new Date();
+  const { currentBatch } = useBatch();
 
-  // Use batch from API
-  const { currentBatch, loading: batchLoading, error: batchError } = useBatch();
-
-  // Compute batch options: current + 2 previous batches if available
   const batchOptions = [];
   if (currentBatch !== null) {
     batchOptions.push(currentBatch);
     batchOptions.push(currentBatch - 1);
     batchOptions.push(currentBatch - 2);
   } else {
-    // Show fallback batch if API not loaded
-    batchOptions.push("Can't fetch ! Kindly book and inform us" );
-   
+    batchOptions.push("Can't fetch! Kindly book and inform us");
   }
 
   const [selectedDate, setSelectedDate] = useState(null);
@@ -31,12 +70,8 @@ const BookingForm = () => {
   const [showForm, setShowForm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [dateSlotMap, setDateSlotMap] = useState({});
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth());
-  const [currentYear, setCurrentYear] = useState(today.getFullYear());
-  const [timezone, setTimezone] = useState("Asia/Kolkata");
-  const [currentMonthDays, setCurrentMonthDays] = useState([]);
+  const [userTimezone, setUserTimezone] = useState(getUserTimezone());
 
-  // Form state, initialize batchNo using currentBatch when available
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -48,97 +83,69 @@ const BookingForm = () => {
     parentConfirmed: false,
   });
 
-  // Update batchNo on currentBatch change or selectedDate change
   useEffect(() => {
     if (currentBatch !== null) {
       setForm((prev) => ({ ...prev, batchNo: currentBatch.toString() }));
     }
   }, [currentBatch]);
 
-  // Generate calendar days for current month
   useEffect(() => {
-    const generateMonthDays = (year, month) => {
-      const days = [];
-      const first = new Date(year, month, 1);
-      const last = new Date(year, month + 1, 0);
-      for (let i = 0; i < first.getDay(); i++) days.push(null);
-      for (let d = 1; d <= last.getDate(); d++) days.push(new Date(year, month, d));
-      return days;
-    };
-    setCurrentMonthDays(generateMonthDays(currentYear, currentMonth));
-  }, [currentYear, currentMonth]);
-
-  // Fetch slots
-   useEffect(() => {
     const fetchSlotConfig = async () => {
       try {
-        const data = await getSlotConfig();
+        const data = await getAvailableSlots();
         const map = {};
 
-        // Define excluded time slots
-        const excludedTimeSlots = [
-          "10:00-11:00 PM",
-          "10-11 PM",           // Alternative format
-          "10:00 PM-11:00 PM"   // Another possible format
-        ];
+        data.forEach(({ date, dateUTC, slots }) => {
+          if (!slots || slots.length === 0) return;
 
-        data.forEach(({ date, slots }) => {
-          // Filter out the excluded time slots
-          const filteredSlots = slots.filter(slot => {
-            const normalizedTime = slot.time.replace(/\s+/g, ' ').trim();
-            return !excludedTimeSlots.includes(normalizedTime);
+          const convertedSlots = slots.map(slot => {
+            const converted = convertUTCToUserTimezone(dateUTC, slot.timeUTC, userTimezone);
+            
+            return {
+              ...slot,
+              timeUTC: slot.timeUTC,
+              displayTime: converted.displayTime,
+              userDate: converted.date,
+              userDateObj: converted.dateObj
+            };
           });
 
-          // Only add to map if there are remaining slots after filtering
-          if (filteredSlots.length > 0) {
-            map[date] = filteredSlots;
-            console.log(`📅 ${date}: Showing ${filteredSlots.length} slots (excluded 10-11 PM):`,
-              filteredSlots.map(s => s.time));
-          } else {
-            console.log(`📅 ${date}: No slots available after filtering`);
-          }
+          convertedSlots.forEach(slot => {
+            const userDateStr = slot.userDate;
+            if (!map[userDateStr]) {
+              map[userDateStr] = [];
+            }
+            map[userDateStr].push(slot);
+          });
         });
 
-        console.log(`🎯 Calendar shows ${Object.keys(map).length} dates with available slots`);
         setDateSlotMap(map);
 
         const now = new Date();
-        now.setSeconds(0, 0);
-
         const sortedDates = Object.keys(map).sort();
+        
         for (let dateStr of sortedDates) {
           const slots = map[dateStr];
-          for (let slot of slots) {
-            try {
-              const [time, meridian] = slot.time.split(" ");
-              let [hours, minutes] = time.split(":").map(Number);
-              if (meridian === "PM" && hours !== 12) hours += 12;
-              if (meridian === "AM" && hours === 12) hours = 0;
-
-              const slotDate = new Date(`${dateStr}T${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:00`);
-
-              if (slotDate > now) {
-                const selectedDateObj = new Date(dateStr);
-                setSelectedDate(selectedDateObj);
-                setSelectedTime("");
-                console.log(`✅ Auto-selected first available slot: ${dateStr} at ${slot.time}`);
-                return;
-              }
-            } catch (error) {
-              console.warn('Error processing slot:', slot, error);
-              continue;
+          if (slots && slots.length > 0) {
+            const firstSlot = slots[0];
+            if (firstSlot.userDateObj > now) {
+              setSelectedDate(new Date(dateStr));
+              setSelectedTime("");
+              return;
             }
           }
         }
+        
         setSelectedDate(null);
         setSelectedTime("");
-        console.log(`ℹ️ No future slots available after excluding 10-11 PM`);
       } catch (err) {
         console.error("❌ Failed to fetch slots:", err);
+        toast.error("Failed to load available slots");
       }
     };
+    
     fetchSlotConfig();
-  }, []);
+  }, [userTimezone]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -148,32 +155,22 @@ const BookingForm = () => {
     }));
   };
 
-  const getOneHourLater = (timeStr) => {
-    if (!timeStr) return "";
-    const [time, modifier] = timeStr.split(" ");
-    let [hours, minutes] = time.split(":").map(Number);
-    if (modifier === "PM" && hours !== 12) hours += 12;
-    if (modifier === "AM" && hours === 12) hours = 0;
-
-    const date = new Date();
-    date.setHours(hours + 1, minutes, 0);
-    const newHours = date.getHours();
-    const formattedHours = newHours % 12 || 12;
-    const newModifier = newHours >= 12 ? "PM" : "AM";
-    return `${formattedHours}:${String(date.getMinutes()).padStart(2, "0")} ${newModifier}`;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedDate || !selectedTime) return toast.error("📅 Please select a date and time.");
+    if (!selectedDate || !selectedTime) {
+      return toast.error("📅 Please select a date and time.");
+    }
 
     const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email);
     if (!emailValid) return toast.error("📧 Enter a valid email address");
 
     const dateStr = format(selectedDate, "yyyy-MM-dd");
     const slotList = dateSlotMap[dateStr] || [];
-    const selectedSlotObj = slotList.find((s) => s.time === selectedTime);
-    if (!selectedSlotObj) return toast.error("❌ Selected time is invalid");
+    const selectedSlotObj = slotList.find((s) => s.displayTime === selectedTime);
+    
+    if (!selectedSlotObj) {
+      return toast.error("❌ Selected time is invalid");
+    }
 
     try {
       const response = await bookAppointment({
@@ -181,6 +178,7 @@ const BookingForm = () => {
         date: dateStr,
         program: "LITTLE SCIENTIST 1ST-4TH",
         time: selectedTime,
+        timezone: userTimezone,
         counselorEmail: selectedSlotObj.counselorEmail,
         counselorId: selectedSlotObj.counselorId,
       });
@@ -217,49 +215,39 @@ const BookingForm = () => {
   const selectedDateStr = selectedDate ? format(selectedDate, "yyyy-MM-dd") : null;
   const timeSlots =
     selectedDateStr && dateSlotMap[selectedDateStr]
-      ? [...new Set(dateSlotMap[selectedDateStr].map((s) => s.time))]
+      ? [...new Set(dateSlotMap[selectedDateStr].map((s) => s.displayTime))]
       : [];
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-black text-black px-6 md:px-12 lg:px-20 py-10">
+    <>
       <ToastContainer position="top-right" autoClose={3000} theme="colored" />
-      <div className="w-full max-w-6xl">
-        {!showForm ? (
-          <DateTimeSelector
-            timezone={timezone}
-            setTimezone={setTimezone}
-            currentMonth={currentMonth}
-            setCurrentMonth={setCurrentMonth}
-            currentYear={currentYear}
-            setCurrentYear={setCurrentYear}
-            currentMonthDays={currentMonthDays}
-            today={today}
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            selectedTime={selectedTime}
-            setSelectedTime={setSelectedTime}
-            timeSlots={timeSlots}
-            setShowForm={setShowForm}
-            dateSlotMap={dateSlotMap}
-          />
-        ) : (
-          <div className="min-h-screen bg-black text-white px-4 py-8 md:px-10 flex items-center justify-center">
-            <RegistrationForm
-              form={form}
-              setForm={setForm}
-              selectedDate={selectedDate}
-              selectedTime={selectedTime}
-              getOneHourLater={getOneHourLater}
-              setShowForm={setShowForm}
-              handleSubmit={handleSubmit}
-              handleChange={handleChange}
-              batchOptions={batchOptions}
-            />
-          </div>
-        )}
-      </div>
+      {!showForm ? (
+        <DateTimeSelector
+          timezone={userTimezone}
+          setTimezone={setUserTimezone}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          selectedTime={selectedTime}
+          setSelectedTime={setSelectedTime}
+          timeSlots={timeSlots}
+          setShowForm={setShowForm}
+          dateSlotMap={dateSlotMap}
+        />
+      ) : (
+        <RegistrationForm
+          form={form}
+          setForm={setForm}
+          selectedDate={selectedDate}
+          selectedTime={selectedTime}
+          userTimezone={userTimezone}
+          setShowForm={setShowForm}
+          handleSubmit={handleSubmit}
+          handleChange={handleChange}
+          batchOptions={batchOptions}
+        />
+      )}
       {showSuccess && <SuccessModal clientEmail={form.email} />}
-    </div>
+    </>
   );
 };
 
